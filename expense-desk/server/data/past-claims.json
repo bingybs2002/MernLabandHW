@@ -1,0 +1,112 @@
+[
+  {
+    "id": "P01",
+    "employeeId": "E01",
+    "merchant": "Uber",
+    "description": "Ride to client office",
+    "expenseDate": "2026-09-02",
+    "submittedAt": "2026-09-03",
+    "amount": 31.2,
+    "receiptNumber": "UB-7781-0902",
+    "status": "paid"
+  },
+  {
+    "id": "P02",
+    "employeeId": "E01",
+    "merchant": "Purple Cafe",
+    "description": "Lunch with Contoso buyer",
+    "expenseDate": "2026-09-18",
+    "submittedAt": "2026-09-19",
+    "amount": 58.0,
+    "receiptNumber": "PC-20918-14",
+    "status": "paid"
+  },
+  {
+    "id": "P03",
+    "employeeId": "E03",
+    "merchant": "Alaska Airlines",
+    "description": "Flight change fee",
+    "expenseDate": "2026-09-28",
+    "submittedAt": "2026-09-30",
+    "amount": 75.0,
+    "receiptNumber": "KXJ4QP",
+    "status": "paid"
+  },
+  {
+    "id": "P04",
+    "employeeId": "E03",
+    "merchant": "FedEx Office",
+    "description": "Printing for the product launch",
+    "expenseDate": "2026-08-22",
+    "submittedAt": "2026-08-25",
+    "amount": 64.0,
+    "receiptNumber": "FX-118204",
+    "status": "paid"
+  },
+  {
+    "id": "P05",
+    "employeeId": "E01",
+    "merchant": "Tavolata",
+    "description": "Team dinner",
+    "expenseDate": "2026-10-16",
+    "submittedAt": "2026-10-17",
+    "amount": 24.0,
+    "receiptNumber": null,
+    "status": "paid"
+  },
+  {
+    "id": "P06",
+    "employeeId": "E01",
+    "merchant": "Tavolata",
+    "description": "Team dinner (part 2)",
+    "expenseDate": "2026-10-16",
+    "submittedAt": "2026-10-18",
+    "amount": 24.0,
+    "receiptNumber": null,
+    "status": "paid"
+  },
+  {
+    "id": "P07",
+    "employeeId": "E02",
+    "merchant": "Hyatt Regency Austin",
+    "description": "Hotel for the cloud summit",
+    "expenseDate": "2026-09-16",
+    "submittedAt": "2026-09-18",
+    "amount": 398.0,
+    "receiptNumber": "HY-55021",
+    "status": "paid"
+  },
+  {
+    "id": "P08",
+    "employeeId": "E04",
+    "merchant": "SpotHero",
+    "description": "Parking at the customer site",
+    "expenseDate": "2026-10-01",
+    "submittedAt": "2026-10-02",
+    "amount": 18.0,
+    "receiptNumber": "SH-30011",
+    "status": "paid"
+  },
+  {
+    "id": "P09",
+    "employeeId": "E08",
+    "merchant": "United Airlines",
+    "description": "Flight Denver to Boston",
+    "expenseDate": "2026-10-12",
+    "submittedAt": "2026-10-12",
+    "amount": 312.0,
+    "receiptNumber": "UA-QZ81LM",
+    "status": "paid"
+  },
+  {
+    "id": "P10",
+    "employeeId": "E05",
+    "merchant": "Wildginger",
+    "description": "Lunch with a partner",
+    "expenseDate": "2026-09-25",
+    "submittedAt": "2026-09-27",
+    "amount": 96.0,
+    "receiptNumber": "WG-4410",
+    "status": "paid"
+  }
+]

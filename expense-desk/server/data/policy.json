@@ -1,0 +1,62 @@
+[
+  {
+    "id": "R1",
+    "title": "Receipts",
+    "topics": ["receipts", "all"],
+    "text": "Any expense over $25 needs a receipt; without one, reject the claim. We pay what the receipt shows: if the claimed amount is higher than the receipt total, pay the receipt total (partial)."
+  },
+  {
+    "id": "R2",
+    "title": "Meals",
+    "topics": ["meals"],
+    "text": "Meals are covered only while traveling for work (a trip in the employee's travel calendar on that date) or when hosting a client named in the note. Pay up to $75 per person per day; the part above the cap is not paid (partial)."
+  },
+  {
+    "id": "R3",
+    "title": "Alcohol",
+    "topics": ["meals", "alcohol"],
+    "text": "Alcohol is never reimbursed. Remove it from the amount and pay the rest (partial)."
+  },
+  {
+    "id": "R4",
+    "title": "Hotels",
+    "topics": ["hotels", "travel"],
+    "text": "Hotels are covered up to $250 per night including tax, and the stay must match a trip in the employee's travel calendar. If no trip matches, escalate to Finance; do not reject, because calendars can be out of date. If a night is above the cap, pay up to the cap (partial)."
+  },
+  {
+    "id": "R5",
+    "title": "Deadline",
+    "topics": ["deadline", "all"],
+    "text": "Claims must be submitted within 60 days of the expense date. Later claims are rejected."
+  },
+  {
+    "id": "R6",
+    "title": "Manager approval",
+    "topics": ["approval", "all"],
+    "text": "If the amount to pay is over $500, the employee's manager must approve the claim before it is paid (needs_approval)."
+  },
+  {
+    "id": "R7",
+    "title": "Gifts",
+    "topics": ["gifts"],
+    "text": "Gifts, gift cards and cash equivalents are never paid through expenses, even for clients. Escalate to Finance."
+  },
+  {
+    "id": "R8",
+    "title": "Duplicates",
+    "topics": ["duplicates", "all"],
+    "text": "A receipt can be claimed only once. If the same receipt (same receipt or confirmation number, or the same merchant, date and amount) was already claimed, reject the claim."
+  },
+  {
+    "id": "R9",
+    "title": "Splitting",
+    "topics": ["splitting", "duplicates"],
+    "text": "Splitting one expense into several smaller claims (for example to stay under the $25 receipt limit) is not allowed. Escalate to Finance."
+  },
+  {
+    "id": "R10",
+    "title": "What is covered",
+    "topics": ["covered", "travel", "all"],
+    "text": "Work transport (taxi, ride share, train, flights, parking), conference tickets, and work equipment and supplies are covered in full with a receipt, subject to the rules above."
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "E01",
+    "name": "Maya Chen",
+    "title": "Account Executive",
+    "department": "Sales",
+    "managerId": "E05",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E02",
+    "name": "Omar Haddad",
+    "title": "Software Engineer",
+    "department": "Engineering",
+    "managerId": "E06",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E03",
+    "name": "Priya Nair",
+    "title": "Marketing Specialist",
+    "department": "Marketing",
+    "managerId": "E05",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E04",
+    "name": "Lucas Silva",
+    "title": "Sales Engineer",
+    "department": "Sales",
+    "managerId": "E05",
+    "homeCity": "Chicago"
+  },
+  {
+    "id": "E05",
+    "name": "Hannah Weber",
+    "title": "Sales Director",
+    "department": "Sales",
+    "managerId": "E09",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E06",
+    "name": "Daniel Kim",
+    "title": "Engineering Manager",
+    "department": "Engineering",
+    "managerId": "E09",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E07",
+    "name": "Sofia Rossi",
+    "title": "Finance Reviewer",
+    "department": "Finance",
+    "managerId": "E09",
+    "homeCity": "Seattle"
+  },
+  {
+    "id": "E08",
+    "name": "Jamal Brooks",
+    "title": "Solutions Engineer",
+    "department": "Engineering",
+    "managerId": "E06",
+    "homeCity": "Denver"
+  },
+  {
+    "id": "E09",
+    "name": "Grace Okafor",
+    "title": "Chief Operating Officer",
+    "department": "Operations",
+    "managerId": null,
+    "homeCity": "Seattle"
+  }
+]

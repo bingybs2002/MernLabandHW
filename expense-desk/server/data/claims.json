@@ -1,0 +1,132 @@
+[
+  {
+    "id": "C01",
+    "employeeId": "E01",
+    "amount": 42.5,
+    "expenseDate": "2026-10-14",
+    "submittedAt": "2026-10-15",
+    "note": "Taxi from the airport to the Contoso office for the quarterly review.",
+    "receiptText": "YELLOW CAB SEATTLE\nReceipt #YC-88412\n2026-10-14  08:42\nFrom: SEA Airport\nTo:   1200 Pine St\nFare            38.00\nTip              4.50\nTOTAL           42.50\nVISA ****4821",
+    "status": "new"
+  },
+  {
+    "id": "C02",
+    "employeeId": "E02",
+    "amount": 399.0,
+    "expenseDate": "2026-10-02",
+    "submittedAt": "2026-10-13",
+    "note": "Ticket for NodeConf. Daniel approved me going in our 1:1.",
+    "receiptText": "NODECONF 2026\nOrder #NC-55190   2026-10-02\n1 x Standard ticket       399.00\nTOTAL USD                 399.00\nPaid by card ending 3307",
+    "status": "new"
+  },
+  {
+    "id": "C03",
+    "employeeId": "E01",
+    "amount": 490.56,
+    "expenseDate": "2026-10-08",
+    "submittedAt": "2026-10-09",
+    "note": "Hotel for the Fabrikam workshop in Chicago, 2 nights.",
+    "receiptText": "HILTON CHICAGO\nFolio 771203\nGuest: Maya Chen\nArrive 2026-10-06   Depart 2026-10-08\n10/06  Room            219.00\n10/06  Room tax         26.28\n10/07  Room            219.00\n10/07  Room tax         26.28\nBALANCE PAID           490.56",
+    "status": "new"
+  },
+  {
+    "id": "C04",
+    "employeeId": "E05",
+    "amount": 192.0,
+    "expenseDate": "2026-10-09",
+    "submittedAt": "2026-10-10",
+    "note": "Dinner with Contoso's VP of Operations to discuss the renewal. 2 people.",
+    "receiptText": "CANLIS\nCheck #2231   2026-10-09 19:55   Guests: 2\nHalibut                 62.00\nLamb                    58.00\nShared dessert          18.00\nBottle Pinot Noir       54.00\nSUBTOTAL               192.00\nTOTAL                  192.00",
+    "status": "new"
+  },
+  {
+    "id": "C05",
+    "employeeId": "E08",
+    "amount": 112.4,
+    "expenseDate": "2026-10-13",
+    "submittedAt": "2026-10-14",
+    "note": "Dinner on my own after the onboarding day in Boston.",
+    "receiptText": "LEGAL SEA FOODS - BOSTON\nServer: Ana   Table 14   Guests: 1\n2026-10-13  20:31\nClam chowder            14.90\nLobster roll            44.50\nGrilled salmon          39.00\nSparkling water          5.00\nTax                      9.00\nTOTAL                  112.40",
+    "status": "new"
+  },
+  {
+    "id": "C06",
+    "employeeId": "E03",
+    "amount": 180.0,
+    "expenseDate": "2026-10-11",
+    "submittedAt": "2026-10-12",
+    "note": "Printer ink and paper for the marketing event booth.",
+    "receiptText": "STAPLES #0342\n2026-10-11  15:12\nHP 63XL ink x2           79.98\nCopy paper 5 ream        19.99\nTax                       8.03\nTOTAL                   108.00\nMASTERCARD ****1190",
+    "status": "new"
+  },
+  {
+    "id": "C07",
+    "employeeId": "E02",
+    "amount": 36.8,
+    "expenseDate": "2026-07-28",
+    "submittedAt": "2026-10-14",
+    "note": "Uber to the customer site, forgot to submit this earlier.",
+    "receiptText": "Uber\nTrip  2026-07-28 09:05\nSeattle -> Redmond\nFare                    36.80\nTotal                   36.80",
+    "status": "new"
+  },
+  {
+    "id": "C08",
+    "employeeId": "E04",
+    "amount": 48.0,
+    "expenseDate": "2026-10-15",
+    "submittedAt": "2026-10-16",
+    "note": "Parking at the client site all day. Lost the receipt, sorry.",
+    "receiptText": "",
+    "status": "new"
+  },
+  {
+    "id": "C09",
+    "employeeId": "E03",
+    "amount": 75.0,
+    "expenseDate": "2026-09-28",
+    "submittedAt": "2026-10-15",
+    "note": "Flight change fee for the launch trip.",
+    "receiptText": "ALASKA AIRLINES\nConfirmation: KXJ4QP\n2026-09-28\nChange fee               75.00\nTOTAL                    75.00",
+    "status": "new"
+  },
+  {
+    "id": "C10",
+    "employeeId": "E01",
+    "amount": 24.0,
+    "expenseDate": "2026-10-16",
+    "submittedAt": "2026-10-19",
+    "note": "Team dinner at Tavolata (part 3).",
+    "receiptText": "",
+    "status": "new"
+  },
+  {
+    "id": "C11",
+    "employeeId": "E02",
+    "amount": 410.0,
+    "expenseDate": "2026-10-11",
+    "submittedAt": "2026-10-12",
+    "note": "Hotel in Austin for the cloud meetup, 2 nights.",
+    "receiptText": "HYATT REGENCY AUSTIN\nFolio 90311\nGuest: Omar Haddad\nArrive 2026-10-09   Depart 2026-10-11\n10/09  Room            185.00\n10/09  Tax              20.00\n10/10  Room            185.00\n10/10  Tax              20.00\nTOTAL                  410.00",
+    "status": "new"
+  },
+  {
+    "id": "C12",
+    "employeeId": "E04",
+    "amount": 1240.0,
+    "expenseDate": "2026-10-15",
+    "submittedAt": "2026-10-16",
+    "note": "Replacement laptop, my old one stopped booting before the client demo.",
+    "receiptText": "BEST BUY BUSINESS\nOrder BB-6620193   2026-10-15\nMacBook Air 13\" 16GB    1149.00\nTax                      91.00\nTOTAL                   1240.00",
+    "status": "new"
+  },
+  {
+    "id": "C13",
+    "employeeId": "E05",
+    "amount": 200.0,
+    "expenseDate": "2026-10-17",
+    "submittedAt": "2026-10-17",
+    "note": "Thank-you gift card for our contact at Contoso after the renewal.",
+    "receiptText": "amazon.com\nOrder 113-4471902-2201   2026-10-17\nAmazon.com eGift Card     200.00\nOrder total              200.00",
+    "status": "new"
+  }
+]

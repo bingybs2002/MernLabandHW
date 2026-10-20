@@ -1,0 +1,42 @@
+[
+  {
+    "id": "T01",
+    "employeeId": "E01",
+    "city": "Chicago",
+    "from": "2026-10-06",
+    "to": "2026-10-08",
+    "purpose": "Workshop at Fabrikam"
+  },
+  {
+    "id": "T02",
+    "employeeId": "E08",
+    "city": "Boston",
+    "from": "2026-10-12",
+    "to": "2026-10-15",
+    "purpose": "Customer onboarding at Northwind"
+  },
+  {
+    "id": "T03",
+    "employeeId": "E02",
+    "city": "Austin",
+    "from": "2026-09-14",
+    "to": "2026-09-16",
+    "purpose": "Cloud summit"
+  },
+  {
+    "id": "T04",
+    "employeeId": "E04",
+    "city": "New York",
+    "from": "2026-10-20",
+    "to": "2026-10-23",
+    "purpose": "Trade show"
+  },
+  {
+    "id": "T05",
+    "employeeId": "E05",
+    "city": "San Francisco",
+    "from": "2026-09-24",
+    "to": "2026-09-26",
+    "purpose": "Partner meetings"
+  }
+]
