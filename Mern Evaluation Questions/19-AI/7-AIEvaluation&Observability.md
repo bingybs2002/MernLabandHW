@@ -1,6 +1,25 @@
-1. Why does an AI app need evals, and not only unit tests?
-2. What kinds of grader are there, and when do you use each?
-3. What is an LLM as a judge, and how do you write a good test case for it?
-4. How do you evaluate a RAG system?
-5. What are observability and tracing, and how are they different from evaluation?
-6. How do you debug an AI's mistake?
+# AI Evaluation & Observability
+
+### 1. Why does an AI app need evals, and not only unit tests?
+
+Unit tests assume deterministic code with exact expected outputs, but LLM outputs are non-deterministic, open-ended, and can be correct in many different wordings, so an assert-equals check doesn't work. Quality is also about fuzzy properties such as accuracy, relevance, helpfulness, tone, safety, and faithfulness to sources. Evals run the app over a dataset of representative and edge-case inputs and score outputs with graders, measuring quality statistically across many cases. They catch regressions when you change prompts, models, or retrieval, let you compare versions objectively, and give confidence before shipping. Unit tests are still needed for the deterministic code around the model, such as parsing, tools, and routing.
+
+### 2. What kinds of grader are there, and when do you use each?
+
+Code-based graders are deterministic checks: exact match, regex, JSON schema validation, whether the right tool was called, whether generated code passes tests, string contains, or numeric tolerance. Use them whenever the answer is objectively checkable; they are fast, cheap, and reliable. Model-based graders (LLM-as-a-judge) use an LLM with a rubric to score open-ended qualities such as helpfulness, tone, faithfulness, or comparing two answers. Use them when there's no single correct output and you need scale; they must be calibrated against human judgment. Human graders, whether experts or annotators, review outputs directly. Use them for nuanced or high-stakes judgments, building gold-standard labels, and validating the automated graders; they are the most accurate but slow and expensive. Most systems combine all three.
+
+### 3. What is an LLM as a judge, and how do you write a good test case for it?
+
+LLM-as-a-judge uses an LLM to evaluate another model's output against criteria, such as "Is the answer faithful to the context? Score 1-5 and explain," either scoring one output or comparing two (pairwise). A good test case includes a realistic input with the needed context; a reference answer or clear expected facts when available; a specific rubric with concrete criteria and examples of good and bad answers, not vague words like "good"; a structured output (pass/fail or a small scale with the reasoning given before the score); and one criterion per judge so judgments stay focused. Cover happy paths, edge cases, and adversarial inputs. Then validate the judge by comparing its scores with human labels on a sample, and watch for biases such as preferring longer answers, position bias in pairwise comparisons, or favoring its own model's style.
+
+### 4. How do you evaluate a RAG system?
+
+Evaluate retrieval and generation separately, then end to end. Retrieval: did it find the right chunks? Measure context precision and recall, hit rate or recall@k, and MRR against a labeled set of questions with known relevant documents. Generation: faithfulness or groundedness (are all claims supported by the retrieved context, meaning no hallucination), answer relevance to the question, correctness against reference answers, and citation accuracy. End to end, test with real user questions, unanswerable questions (it should say it doesn't know), and edge cases. Tools such as Ragas, LangSmith, DeepEval, or TruLens help, often using LLM-as-a-judge for faithfulness and relevance. Track latency and cost too.
+
+### 5. What are observability and tracing, and how are they different from evaluation?
+
+Observability is the ability to see what an AI app is actually doing in production by collecting logs, metrics, and traces. Tracing records every step of a request as a tree of spans: the prompt sent, the model's response, tool calls with inputs and outputs, retrieval results, token counts, latency, cost, and errors, using tools such as LangSmith, Langfuse, Arize Phoenix, or OpenTelemetry-based tracing. The difference: evaluation measures how good the outputs are, usually offline against a test dataset, before and after changes. Observability shows what happened, usually online with real traffic, so you can debug, monitor cost and latency, and find failures. They connect: bad production traces become new eval test cases, and online evals can score live traces.
+
+### 6. How do you debug an AI's mistake?
+
+1) Reproduce it: find the exact trace in the observability tool and look at the full input context, not just the user message. 2) Locate the failing step: was the wrong document retrieved (retrieval problem), did the right context exist but the model ignored or misread it (prompt or model problem), was the wrong tool called or given bad arguments, did a tool return an error or bad data, or was context truncated or missing? 3) Form a hypothesis and fix the cause: improve the prompt or instructions, add examples, adjust chunking or retrieval, fix tool descriptions or schemas, add validation, or switch models. 4) Add the case to the eval dataset as a regression test and run the whole eval suite to confirm the fix doesn't break other cases.

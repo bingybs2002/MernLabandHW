@@ -1,9 +1,8 @@
 # Final Evaluation — Question Bank with Answers
 
 Interview prep broken out from questions.ts, one folder per section and one
-Markdown file per sub-topic. Every question in sections 01–18 has an answer; sub-points
+Markdown file per sub-topic. Every question has an answer; sub-points
 appear as nested bullets under their parent question and count as part of it.
-Section 19 (AI) lists the questions only.
 
 Updated 2026-10-24 to match the instructor's revised questions.ts: removed questions were
 dropped, merged questions were combined under one heading with sub-points, and new
