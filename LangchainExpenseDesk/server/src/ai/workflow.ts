@@ -1,20 +1,35 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { ai } from "../llm";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { OutputParserException, StringOutputParser } from "@langchain/core/output_parsers";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 import { tools } from "../tools";
 import { note } from "../trace/trace";
 import type { ClaimResult, Decision, Employee, PastClaim, Trip } from "../types";
 import { investigateClaim } from "./agent";
+import { chatModel } from "./langchain";
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // 🛤️ PART 1: THE WORKFLOW. Your code decides every step.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 //
-// The flow (see docs/design.md, section 1):
-//   getClaim → gates (R5, R1) → fetch context → R8 receipt number → extract chunks (model)
-//   → validate (unusual → agent) → rule per chunk (code) → combine + R6 → email (model) → pay once
+// The flow (see docs/design.md, section 1), as a LangGraph StateGraph:
+//
+//   loadClaim → gates ─┬─ R5 / R1 ─────────────────────────────────────────────────► email
+//                      └─► fetchEmployee ┐
+//                          fetchTrips    ├─► duplicateCheck ─┬─ R8 ─────────────────► email
+//                          fetchPastClaims┘   (in parallel)   ├─ no receipt ─► agent ─► checkAgent ─► email
+//                                                             └─► extract → validate ─┬─ odd ─► agent …
+//                                                                                     └─► applyRules ─► email
+//   email → pay → END
 //
 // The model never decides here: it only reads the note and receipt into chunks, and words the email.
-// Only this file calls payClaim, in one place, at the very end.
+// Only the pay node calls payClaim, in one place, at the very end.
+//
+// Crash-safe: a MemorySaver checkpoints the state after every node, per claim. If a run throws halfway
+// (the model API is down, ...), the next processClaim for that claim resumes from the failed node
+// instead of starting over. The pay node is last, and the claims service refuses a claim that has a
+// payment, so a resumed run cannot pay twice.
 
 type Claim = ReturnType<typeof tools.getClaim>;
 type Context = { claim: Claim; employee: Employee; trips: Trip[]; pastClaims: PastClaim[] };
@@ -25,6 +40,149 @@ const RECEIPT_LIMIT = 25;
 const MEAL_CAP_PER_PERSON = 75;
 const HOTEL_CAP_PER_NIGHT = 250;
 const APPROVAL_LIMIT = 500;
+
+// ── The state every node reads from and writes to ───────────────────────
+
+const last = <T>() => Annotation<T>({ reducer: (_, next) => next, default: () => null as T });
+
+const ClaimState = Annotation.Root({
+  claimId: Annotation<string>,
+  claim: last<Claim | null>(),
+  employee: last<Employee | null>(),
+  trips: last<Trip[] | null>(),
+  pastClaims: last<PastClaim[] | null>(),
+  extraction: last<Extraction | null>(),
+  agentReason: last<string | null>(), // set when the claim is unusual: why it goes to the agent
+  agentResult: last<ClaimResult | null>(),
+  outcome: last<Outcome | null>(),
+  emailToEmployee: last<string | null>(),
+  paymentId: last<string | null>(),
+});
+type State = typeof ClaimState.State;
+
+// Only call this after fetchEmployee/fetchTrips/fetchPastClaims have run
+const contextOf = (s: State): Context => ({
+  claim: s.claim!,
+  employee: s.employee!,
+  trips: s.trips!,
+  pastClaims: s.pastClaims!,
+});
+
+// ── Nodes ───────────────────────────────────────────────────────────────
+
+function loadClaim(s: State) {
+  return { claim: tools.getClaim({ claimId: s.claimId }) };
+}
+
+// 1. Whole-claim gates, plain code
+function gates(s: State) {
+  const gate = checkGates(s.claim!);
+  if (gate) note("gate", gate.summary);
+  return { outcome: gate };
+}
+
+// 2. Context: three nodes that LangGraph runs in the same step, because they do not depend on each
+//    other. (The lab's tools are synchronous, so this only becomes truly parallel with a real async
+//    data source.)
+const fetchEmployee = (s: State) => ({ employee: tools.getEmployee({ employeeId: s.claim!.employeeId }) });
+const fetchTrips = (s: State) => ({ trips: tools.getTravelCalendar({ employeeId: s.claim!.employeeId }) });
+const fetchPastClaims = (s: State) => ({ pastClaims: tools.getPastClaims({ employeeId: s.claim!.employeeId }) });
+
+// 3. R8: the same receipt number was already paid. 4. No receipt to read (allowed under $25): nothing
+//    to check the amount against, so the agent looks.
+function duplicateCheck(s: State) {
+  const claim = s.claim!;
+  const duplicate = s.pastClaims!.find((p) => p.receiptNumber && claim.receiptText.includes(p.receiptNumber));
+  if (duplicate) {
+    note("gate", `receipt ${duplicate.receiptNumber} already paid in ${duplicate.id} → reject`);
+    return {
+      outcome: {
+        decision: "reject",
+        approvedAmount: 0,
+        ruleIds: ["R8"],
+        summary: `Receipt ${duplicate.receiptNumber} was already paid in claim ${duplicate.id} (R8).`,
+      } satisfies Outcome,
+    };
+  }
+  if (!claim.receiptText.trim()) return { agentReason: "no receipt to check the amount against" };
+  return {};
+}
+
+// 5. The model reads the note and receipt into chunks
+async function extract(s: State) {
+  return { extraction: await extractChunks(s.claim!) };
+}
+
+function validateNode(s: State) {
+  const problem = validate(contextOf(s), s.extraction);
+  return problem ? { agentReason: problem } : {};
+}
+
+// 6. Each chunk goes to its rule, then the results are combined
+function applyRulesNode(s: State) {
+  return { outcome: applyRules(contextOf(s), s.extraction!) };
+}
+
+// The agent: its answer is checked in the next node before anything else happens
+async function agent(s: State) {
+  note("route", `unusual → agent: ${s.agentReason}`);
+  return { agentResult: await investigateClaim(s.claimId) };
+}
+
+function checkAgent(s: State) {
+  return { outcome: checkAgentResult(s.claim!, s.agentResult!) };
+}
+
+async function email(s: State) {
+  return { emailToEmployee: await writeEmail(s.claim!, s.employee, s.outcome!) };
+}
+
+// The one payment. paymentId guards a re-run of this node within the same run.
+function pay(s: State) {
+  const o = s.outcome!;
+  if (s.paymentId || !(o.decision === "approve" || o.decision === "partial") || !(o.approvedAmount > 0)) return {};
+  const payment = tools.payClaim({ claimId: s.claimId, amount: o.approvedAmount });
+  note("pay", `${payment.id}: $${payment.amount.toFixed(2)}`);
+  return { paymentId: payment.id };
+}
+
+// ── Edges: plain code picks the next node ───────────────────────────────
+
+const afterGates = (s: State) => (s.outcome ? "email" : ["fetchEmployee", "fetchTrips", "fetchPastClaims"]);
+const afterDuplicateCheck = (s: State) => (s.outcome ? "email" : s.agentReason ? "agent" : "extract");
+const afterValidate = (s: State) => (s.agentReason ? "agent" : "applyRules");
+
+const checkpointer = new MemorySaver();
+
+const graph = new StateGraph(ClaimState)
+  .addNode("loadClaim", loadClaim)
+  .addNode("gates", gates)
+  .addNode("fetchEmployee", fetchEmployee)
+  .addNode("fetchTrips", fetchTrips)
+  .addNode("fetchPastClaims", fetchPastClaims)
+  .addNode("duplicateCheck", duplicateCheck)
+  .addNode("extract", extract)
+  .addNode("validate", validateNode)
+  .addNode("applyRules", applyRulesNode)
+  .addNode("agent", agent)
+  .addNode("checkAgent", checkAgent)
+  .addNode("email", email)
+  .addNode("pay", pay)
+  .addEdge(START, "loadClaim")
+  .addEdge("loadClaim", "gates")
+  .addConditionalEdges("gates", afterGates, ["email", "fetchEmployee", "fetchTrips", "fetchPastClaims"])
+  .addEdge(["fetchEmployee", "fetchTrips", "fetchPastClaims"], "duplicateCheck")
+  .addConditionalEdges("duplicateCheck", afterDuplicateCheck, ["email", "agent", "extract"])
+  .addEdge("extract", "validate")
+  .addConditionalEdges("validate", afterValidate, ["agent", "applyRules"])
+  .addEdge("applyRules", "email")
+  .addEdge("agent", "checkAgent")
+  .addEdge("checkAgent", "email")
+  .addEdge("email", "pay")
+  .addEdge("pay", END)
+  .compile({ checkpointer });
+
+// ── Entry point ─────────────────────────────────────────────────────────
 
 // Claims being processed right now: a second click while the first run is still going must not pay twice.
 // (The claims service already refuses claims that have a payment.)
@@ -41,49 +199,24 @@ export async function processClaim(claimId: string): Promise<ClaimResult> {
 }
 
 async function run(claimId: string): Promise<ClaimResult> {
-  const claim = tools.getClaim({ claimId });
+  const config = { configurable: { thread_id: claimId } };
+  const saved = await graph.getState(config);
 
-  // 1. Whole-claim gates, plain code
-  const gate = checkGates(claim);
-  if (gate) {
-    note("gate", gate.summary);
-    return finish(claim, null, gate);
+  let final: State;
+  if (saved.next.length > 0) {
+    // The last run for this claim stopped halfway: carry on from the node that failed
+    note("resume", `last run stopped before ${saved.next.join(", ")}; resuming from there`);
+    final = await graph.invoke(null, config);
+  } else {
+    await checkpointer.deleteThread(claimId); // a finished run from before: start clean
+    final = await graph.invoke({ claimId }, config);
   }
+  return { ...final.outcome!, emailToEmployee: final.emailToEmployee ?? "" };
+}
 
-  // 2. Context, fetched together: these lookups do not depend on each other. (The lab's tools are
-  //    synchronous, so this only becomes truly parallel with a real async data source.)
-  const [employee, trips, pastClaims] = await Promise.all([
-    Promise.resolve(tools.getEmployee({ employeeId: claim.employeeId })),
-    Promise.resolve(tools.getTravelCalendar({ employeeId: claim.employeeId })),
-    Promise.resolve(tools.getPastClaims({ employeeId: claim.employeeId })),
-  ]);
-  const ctx: Context = { claim, employee, trips, pastClaims };
-
-  // 3. R8: the same receipt number was already paid
-  const duplicate = pastClaims.find((p) => p.receiptNumber && claim.receiptText.includes(p.receiptNumber));
-  if (duplicate) {
-    note("gate", `receipt ${duplicate.receiptNumber} already paid in ${duplicate.id} → reject`);
-    return finish(claim, employee, {
-      decision: "reject",
-      approvedAmount: 0,
-      ruleIds: ["R8"],
-      summary: `Receipt ${duplicate.receiptNumber} was already paid in claim ${duplicate.id} (R8).`,
-    });
-  }
-
-  // 4. No receipt to read (allowed under $25): nothing to check the amount against
-  if (!claim.receiptText.trim()) {
-    return toAgent(ctx, "no receipt to check the amount against");
-  }
-
-  // 5. The model reads the note and receipt into chunks
-  const extraction = await extractChunks(claim);
-  const problem = validate(ctx, extraction);
-  if (problem || !extraction) return toAgent(ctx, problem ?? "extraction failed");
-
-  // 6. Each chunk goes to its rule, then the results are combined
-  const outcome = applyRules(ctx, extraction);
-  return finish(claim, employee, outcome);
+// "Reset data" puts the claims back, so saved runs no longer match them (and ids get reused)
+export async function clearRuns() {
+  for (const threadId of Object.keys(checkpointer.storage)) await checkpointer.deleteThread(threadId);
 }
 
 // ── Gates ───────────────────────────────────────────────────────────────
@@ -164,22 +297,26 @@ const EXTRACT_SYSTEM = `You read expense receipts. Break the receipt into chunks
 - Dates are YYYY-MM-DD. If the receipt leaves out the year, use the year of the expense date.
 - Do not judge the policy. Only report what the receipt and note say.`;
 
+// A forced tool call: withStructuredOutput sends tool_choice for reportChunks and returns its input
+const extractor = chatModel(1500).withStructuredOutput<Extraction>(extractTool, {
+  name: extractTool.name,
+  method: "functionCalling",
+});
+
 async function extractChunks(claim: Claim): Promise<Extraction | null> {
   note("extract", "model reads the note and receipt into chunks");
-  const response = await ai.messages.create({
-    max_tokens: 1500,
-    system: EXTRACT_SYSTEM,
-    tools: [extractTool],
-    tool_choice: { type: "tool", name: extractTool.name },
-    messages: [
-      {
-        role: "user",
-        content: `Expense date: ${claim.expenseDate}\nEmployee's note: ${claim.note}\n\nReceipt:\n${claim.receiptText}`,
-      },
-    ],
-  });
-  const block = response.content.find((b) => b.type === "tool_use");
-  return block?.type === "tool_use" ? (block.input as Extraction) : null;
+  try {
+    return await extractor.invoke([
+      new SystemMessage(EXTRACT_SYSTEM),
+      new HumanMessage(`Expense date: ${claim.expenseDate}\nEmployee's note: ${claim.note}\n\nReceipt:\n${claim.receiptText}`),
+    ]);
+  } catch (err) {
+    // An answer the parser cannot read: validate() sends the claim to the agent. Anything else (the API
+    // is down, ...) fails this node, so a resumed run tries the extraction again.
+    if (!(err instanceof OutputParserException)) throw err;
+    note("extract", `could not read the model's answer: ${err.message}`);
+    return null;
+  }
 }
 
 // ── Validation: anything odd goes to the agent ──────────────────────────
@@ -331,14 +468,6 @@ function applyApprovalLimit(outcome: Outcome): Outcome {
   return outcome;
 }
 
-// ── The agent: its answer is checked here before anything else happens ─
-
-async function toAgent(ctx: Context, reason: string): Promise<ClaimResult> {
-  note("route", `unusual → agent: ${reason}`);
-  const result = await investigateClaim(ctx.claim.id);
-  return finish(ctx.claim, ctx.employee, checkAgentResult(ctx.claim, result));
-}
-
 const DECISIONS: Decision[] = ["approve", "partial", "reject", "needs_approval", "escalate"];
 
 function checkAgentResult(claim: Claim, r: ClaimResult): Outcome {
@@ -360,17 +489,8 @@ function checkAgentResult(claim: Claim, r: ClaimResult): Outcome {
   return applyApprovalLimit({ decision, approvedAmount: amount, ruleIds, summary });
 }
 
-// ── Finish: the email, then the one payment ─────────────────────────────
 
-async function finish(claim: Claim, employee: Employee | null, outcome: Outcome): Promise<ClaimResult> {
-  const emailToEmployee = await writeEmail(claim, employee, outcome);
-
-  if ((outcome.decision === "approve" || outcome.decision === "partial") && outcome.approvedAmount > 0) {
-    const payment = tools.payClaim({ claimId: claim.id, amount: outcome.approvedAmount });
-    note("pay", `${payment.id}: $${payment.amount.toFixed(2)}`);
-  }
-  return { ...outcome, emailToEmployee };
-}
+// ── The email: wording only, from the final decision ────────────────────
 
 const EMAIL_SYSTEM = `You write short, friendly emails to employees about their expense claim, in plain words.
 Use only the facts given. Do not change the decision or the amount. Say the amount and name the rule in plain words.
@@ -384,29 +504,29 @@ const WHAT_HAPPENS: Record<Decision, string> = {
   needs_approval: "their manager must approve it before it is paid",
 };
 
+// A chain: prompt → model → plain text
+const emailChain = ChatPromptTemplate.fromMessages([
+  ["system", EMAIL_SYSTEM],
+  ["human", "{facts}"],
+])
+  .pipe(chatModel(400))
+  .pipe(new StringOutputParser());
+
 async function writeEmail(claim: Claim, employee: Employee | null, o: Outcome): Promise<string> {
   const name = employee?.name.split(" ")[0] ?? "there";
   const fallback = `Hi ${name},\n\nYour claim ${claim.id} for $${claim.amount.toFixed(2)}: ${WHAT_HAPPENS[o.decision]}` +
     `${o.approvedAmount > 0 ? ` ($${o.approvedAmount.toFixed(2)})` : ""}. ${o.summary}\n\nBrightline Finance`;
   try {
-    const response = await ai.messages.create({
-      max_tokens: 400,
-      system: EMAIL_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: [
-            `Employee first name: ${name}`,
-            `Claim ${claim.id}: "${claim.note}", $${claim.amount.toFixed(2)} claimed`,
-            `Decision: ${o.decision} (${WHAT_HAPPENS[o.decision]})`,
-            `Amount to pay: $${o.approvedAmount.toFixed(2)}`,
-            `Reasons: ${o.summary}`,
-          ].join("\n"),
-        },
-      ],
+    const text = await emailChain.invoke({
+      facts: [
+        `Employee first name: ${name}`,
+        `Claim ${claim.id}: "${claim.note}", $${claim.amount.toFixed(2)} claimed`,
+        `Decision: ${o.decision} (${WHAT_HAPPENS[o.decision]})`,
+        `Amount to pay: $${o.approvedAmount.toFixed(2)}`,
+        `Reasons: ${o.summary}`,
+      ].join("\n"),
     });
-    const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n").trim();
-    return text || fallback;
+    return text.trim() || fallback;
   } catch (err) {
     note("email", `model call failed, using the template: ${(err as Error).message}`);
     return fallback;

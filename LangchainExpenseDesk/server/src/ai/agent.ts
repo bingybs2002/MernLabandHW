@@ -1,8 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { ai } from "../llm";
-import { readToolSchemas, runTool } from "../tools";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { Annotation, END, GraphRecursionError, MessagesAnnotation, START, StateGraph } from "@langchain/langgraph";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { note } from "../trace/trace";
 import type { ClaimResult } from "../types";
+import { chatModel, readTools } from "./langchain";
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // 🧭 PART 2: THE AGENT. The model decides the steps.
@@ -11,10 +13,12 @@ import type { ClaimResult } from "../types";
 // workflow.ts calls investigateClaim for the claims it cannot handle with fixed steps (no receipt,
 // chunks that do not add up, an earlier claim at the same merchant on the same day, ...).
 //
-//   loop (at most MAX_TURNS model calls):
-//     1. call the model with the messages so far, the read tools and reportDecision
-//     2. the model asked for read tools → run them with runTool, send the results back, loop again
-//     3. the model called reportDecision → stop and return it
+// A LangGraph loop (at most MAX_TURNS model calls):
+//
+//   START → model ─┬─ asked for read tools ──► tools ──► model
+//                  ├─ called reportDecision ─► decide ──► END
+//                  ├─ said nothing ──────────► nudge ──► model
+//                  └─ turn cap / max_tokens ─► giveUp ──► END   (escalate)
 //
 // The agent never gets payClaimSchema: it returns a decision, and workflow.ts checks it and pays.
 // At the turn cap, or when it stops without a decision, the claim goes to Finance.
@@ -55,46 +59,82 @@ const escalate = (claimId: string, why: string): ClaimResult => ({
   emailToEmployee: "",
 });
 
+const AgentState = Annotation.Root({
+  ...MessagesAnnotation.spec,
+  claimId: Annotation<string>,
+  turns: Annotation<number>({ reducer: (_, next) => next, default: () => 0 }),
+  result: Annotation<ClaimResult | null>({ reducer: (_, next) => next, default: () => null }),
+});
+type State = typeof AgentState.State;
+
+const model = chatModel(1500).bindTools([...readTools, reportDecisionTool]);
+
+const lastAI = (s: State) => s.messages.at(-1) as AIMessage;
+const reportCall = (m: AIMessage) => m.tool_calls?.find((c) => c.name === reportDecisionTool.name);
+
+// ── Nodes ───────────────────────────────────────────────────────────────
+
+async function callModel(s: State) {
+  const response = await model.invoke([new SystemMessage(SYSTEM), ...s.messages]);
+  return { messages: [response], turns: s.turns + 1 };
+}
+
+function decide(s: State) {
+  const input = reportCall(lastAI(s))!.args as Omit<ClaimResult, "emailToEmployee">;
+  note("agent", `turn ${s.turns}: decided ${input.decision}`);
+  // workflow.ts checks this answer and writes the email
+  return { result: { ...input, emailToEmployee: "" } };
+}
+
+// It stopped talking without a decision: ask once more, which uses up a turn
+function nudge() {
+  return { messages: [new HumanMessage("Call reportDecision with your decision now.")] };
+}
+
+function giveUp(s: State) {
+  if (lastAI(s).response_metadata?.stop_reason === "max_tokens") {
+    return { result: escalate(s.claimId, "ran out of tokens") };
+  }
+  note("agent", `turn cap of ${MAX_TURNS} reached → escalate`);
+  return { result: escalate(s.claimId, `no decision after ${MAX_TURNS} turns`) };
+}
+
+// ── Edges: code reads the model's reply and picks the next node ─────────
+
+function afterModel(s: State) {
+  const m = lastAI(s);
+  if (reportCall(m)) return "decide";
+  if (m.response_metadata?.stop_reason === "max_tokens" && !m.tool_calls?.length) return "giveUp";
+  if (s.turns >= MAX_TURNS) return "giveUp";
+  return m.tool_calls?.length ? "tools" : "nudge";
+}
+
+const graph = new StateGraph(AgentState)
+  .addNode("model", callModel)
+  .addNode("tools", new ToolNode(readTools))
+  .addNode("nudge", nudge)
+  .addNode("decide", decide)
+  .addNode("giveUp", giveUp)
+  .addEdge(START, "model")
+  .addConditionalEdges("model", afterModel, ["tools", "nudge", "decide", "giveUp"])
+  .addEdge("tools", "model")
+  .addEdge("nudge", "model")
+  .addEdge("decide", END)
+  .addEdge("giveUp", END)
+  // Read-only, so it is safe to start over: it does not share the workflow's checkpoints
+  .compile({ checkpointer: false });
+
 export async function investigateClaim(claimId: string): Promise<ClaimResult> {
   note("agent", `investigating ${claimId}`);
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: `Investigate expense claim ${claimId} and report your decision.` },
-  ];
-
-  for (let turn = 1; turn <= MAX_TURNS; turn++) {
-    const response = await ai.messages.create({
-      max_tokens: 1500,
-      system: SYSTEM,
-      tools: [...readToolSchemas, reportDecisionTool],
-      messages,
-    });
-    messages.push({ role: "assistant", content: response.content });
-
-    const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-
-    const report = toolUses.find((b) => b.name === reportDecisionTool.name);
-    if (report) {
-      const input = report.input as Omit<ClaimResult, "emailToEmployee">;
-      note("agent", `turn ${turn}: decided ${input.decision}`);
-      // workflow.ts checks this answer and writes the email
-      return { ...input, emailToEmployee: "" };
-    }
-
-    if (toolUses.length === 0) {
-      if (response.stop_reason === "max_tokens") return escalate(claimId, "ran out of tokens");
-      // It stopped talking without a decision: ask once more, which uses up a turn
-      messages.push({ role: "user", content: "Call reportDecision with your decision now." });
-      continue;
-    }
-
-    const results: Anthropic.ToolResultBlockParam[] = toolUses.map((b) => ({
-      type: "tool_result",
-      tool_use_id: b.id,
-      content: runTool(b.name, b.input),
-    }));
-    messages.push({ role: "user", content: results });
+  try {
+    const final = await graph.invoke(
+      { claimId, messages: [new HumanMessage(`Investigate expense claim ${claimId} and report your decision.`)] },
+      // Each turn is two steps (model, tools); this is only a backstop behind MAX_TURNS
+      { recursionLimit: MAX_TURNS * 2 + 4 },
+    );
+    return final.result ?? escalate(claimId, "the loop ended without a decision");
+  } catch (err) {
+    if (err instanceof GraphRecursionError) return escalate(claimId, "step limit reached");
+    throw err;
   }
-
-  note("agent", `turn cap of ${MAX_TURNS} reached → escalate`);
-  return escalate(claimId, `no decision after ${MAX_TURNS} turns`);
 }

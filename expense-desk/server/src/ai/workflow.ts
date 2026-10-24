@@ -89,7 +89,7 @@ async function run(claimId: string): Promise<ClaimResult> {
 // ── Gates ───────────────────────────────────────────────────────────────
 
 function daysBetween(from: string, to: string) {
-  return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+  return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000); // 86,400,000 ms in a day
 }
 
 function checkGates(claim: Claim): Outcome | null {

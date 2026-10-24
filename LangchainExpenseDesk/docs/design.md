@@ -8,18 +8,29 @@ points and one diagram are enough._
 Draw or list how one claim flows through your system, from `getClaim` to the result.
 For each step, say who does it: **code** or **model**.
 
+Built with **LangGraph**: the workflow is a `StateGraph` (one node per step, code picks every edge),
+and the agent is a second, smaller `StateGraph` loop. LangChain's `ChatAnthropic` is the model, but
+its client is swapped for `ai.messages.create` (`server/src/ai/langchain.ts`), so every call is traced.
+
 ```
- getClaim (code)
-→ whole-claim gates: R5 deadline, R1 over $25 with no receipt (code) ──► reject
-→ fetch employee, calendar, past claims, in parallel (code)
-→ extract chunks from note + receipt (model, forced tool call)
+ loadClaim: getClaim (code)
+→ gates: R5 deadline, R1 over $25 with no receipt (code) ──────────────────────► email (reject)
+→ fetchEmployee ‖ fetchTrips ‖ fetchPastClaims: one parallel step (code)
+→ duplicateCheck: R8 receipt number already paid (code) ───────────────────────► email (reject)
+     └─ no receipt ──► agent
+→ extract: chunks from note + receipt (model, forced tool call via withStructuredOutput)
 → validate: chunks sum to the receipt, known categories, no split signals (code)
-     └─ fails / unusual ──► investigateClaim agent (model loop, read tools only, turn cap)
-                                  └─ returns a decision ──► joins at "combine" below
-→ router: each chunk → its rule (R2/R3/R4/R7/R8/R10) (code)
-→ combine: escalate > reject > partial > approve; then R6 over $500 → needs_approval (code)
-→ write summary + email from the final decision, wording only (model)
-→ payClaim once, only approve/partial at $500 or less (code)
+     └─ fails / unusual ──► agent: investigateClaim (LangGraph loop: model ⇄ read tools, turn cap)
+                              → checkAgent: decision, amount ≤ claim, R6 (code) ──► email
+→ applyRules: router, each chunk → its rule (R2/R3/R4/R7/R10), then
+              combine: escalate > reject > partial > approve; R6 over $500 → needs_approval (code)
+→ email: from the final decision, wording only (model, prompt → model → text chain)
+→ pay: payClaim once, only approve/partial at $500 or less (code)
+
+agent loop:  model ─┬─ read tools ──► tools (ToolNode) ──► model
+                    ├─ reportDecision ──► decide ──► END
+                    ├─ no tool call ──► nudge ──► model
+                    └─ turn cap / max_tokens ──► giveUp (escalate) ──► END
 ```
 
 ## 2. Workflow or agent?
@@ -53,7 +64,11 @@ route)? Why can the workflow not handle the agent's claims with fixed steps?
 ## 4. Data between steps
 
 How does each step get what it needs: passed on as a return value, or a shared state object?
-Each step passes its result on as a return value.
+A shared state object (LangGraph's graph state). Each node reads the fields it needs and returns only
+the fields it sets (`claim`, `employee`, `trips`, `pastClaims`, `extraction`, `agentReason`,
+`agentResult`, `outcome`, `emailToEmployee`, `paymentId`); the edges read the state to pick the next
+node. The agent has its own state: the message history, a turn count and its result. The workflow
+only sees the agent's final result, never its messages.
 
 What does each model call see, and what does it NOT see?
 - Extraction: the note and receipt text only. It does not see the policy, calendar or past claims,
@@ -65,14 +80,22 @@ What does each model call see, and what does it NOT see?
 ## 5. Safety
 
 - Where is `payClaim` called, and what guarantees it runs at most once?
-    In one place in `processClaim`, as the last step, only for approve/partial with an amount of $500
-    or less. Before paying, code checks that the claim has no payment yet, and it sets the claim's
-    status to processed so the same run cannot pay again.
+    In one place: the graph's `pay` node, the last node, only for approve/partial with an amount of
+    $500 or less. Before paying, the claims service checks that the claim has no payment yet, an
+    in-flight set stops a second click while a run is going, and the node skips paying if the state
+    already has a `paymentId`.
 - Can a model ever call `payClaim`? Why or why not?
-    No. No model call gets `payClaimSchema`; only code calls `tools.payClaim`. A payment cannot be
-    undone, so it must never depend on what a model asks for.
+    No. Only the read tools are wrapped as LangChain tools; `payClaim` never is, and only code calls
+    `tools.payClaim`. A payment cannot be undone, so it must never depend on what a model asks for.
 - What stops an agent from looping forever (turn cap, token budget)?
-    A max turn count. If the agent reaches it without a decision, the result is `escalate`.
+    A max turn count kept in the agent's state, plus LangGraph's `recursionLimit` as a backstop. If
+    the agent hits either without a decision, the result is `escalate`.
+- What happens if a run crashes halfway? (crash-safe challenge)
+    A LangGraph `MemorySaver` checkpoints the state after every node, one thread per claim. If a node
+    throws (for example the model API is down), the next "Process with AI" resumes from that node
+    instead of starting over: the trace shows a `resume` note and the earlier steps don't run again.
+    Paying is the last node, so a resumed run can't pay twice. "Reset data" clears the saved runs.
+    (In memory only: a server restart loses them, like the rest of the data.)
 - What happens when the model returns something you did not expect?
     Missing fields, an unknown category, chunks that don't add up or an amount above the claim go to the agent;
     a bad answer from the agent becomes `escalate` (Finance looks at it). Never a payment.
@@ -93,35 +116,24 @@ What does each model call see, and what does it NOT see?
 
 ## 7. Results on the inbox
 
-┌───────┬────────────────┬───────────┬────────────┬────────────────────────────────────────┐
-│ Claim │    Decision    │  Amount   │   Rules    │                  Path                  │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C01   │ approve        │ $42.50    │ R10        │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C02   │ approve        │ $399.00   │ R10        │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C03   │ approve        │ $490.56   │ R4         │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C04   │ partial        │ $138.00   │ R3         │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C05   │ partial        │ $75.00    │ R2         │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C06   │ partial        │ $108.00   │ R1         │ workflow                               │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C07   │ reject         │ $0        │ R5         │ workflow (deadline check)              │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C08   │ reject         │ $0        │ R1         │ workflow (no-receipt check)            │
-├───────┼────────────────┼───────────┼────────────┼────────────────────────────────────────┤
-│ C09   │ reject         │ $0        ipt number already paid) │
-├───────┼────────────────┼────────────────────────────────────┤
-│ C10   │ escalate       │ $0        )                        │
-├───────┼────────────────┼────────────────────────────────────┤
-│ C11   │ escalate       │ $0                                 │
-├───────┼────────────────┼────────────────────────────────────┤
-│ C12   │ needs_approval │ $1,240.00 paid                     │
-├───────┼────────────────┼────────────────────────────────────┤
-│ C13   │ escalate       │ $0                                 │
-└───────┴────────────────┴────────────────────────────────────┘
+Run on the LangGraph version (`processClaim` → `StateGraph`). Payments: one each for C01–C06, none
+for the rest.
+
+| Claim | Decision       | Amount    | Rules      | Path                                              |
+| ----- | -------------- | --------- | ---------- | ------------------------------------------------- |
+| C01   | approve        | $42.50    | R10        | workflow                                          |
+| C02   | approve        | $399.00   | R10        | workflow                                          |
+| C03   | approve        | $490.56   | R4         | workflow                                          |
+| C04   | partial        | $138.00   | R3         | workflow                                          |
+| C05   | partial        | $75.00    | R2         | workflow                                          |
+| C06   | partial        | $108.00   | R1         | workflow                                          |
+| C07   | reject         | $0        | R5         | workflow (gates: deadline)                        |
+| C08   | reject         | $0        | R1         | workflow (gates: no receipt)                      |
+| C09   | reject         | $0        | R8         | workflow (duplicateCheck: receipt already paid)   |
+| C10   | escalate       | $0        | R9, R2, R1 | agent (no receipt; split dinner)                  |
+| C11   | escalate       | $0        | R4         | workflow (hotel night matches no trip)            |
+| C12   | needs_approval | $1,240.00 | R10, R6    | workflow (over $500: not paid, waits for manager) |
+| C13   | escalate       | $0        | R7         | workflow (gift / cash equivalent)                 |
                                                                                           
 One thing in your first design that was wrong, and what you changed.
 

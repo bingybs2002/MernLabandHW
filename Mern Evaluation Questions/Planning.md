@@ -1,0 +1,28 @@
+- [ ] React by Monday
+- [ ] React Ecosystem and styling By Tuesday
+	- [ ] React Ecosystem
+	- [ ] Styling
+- [ ] Architecture and Cloud&AWS by Wednesday
+	- [ ] Architecture
+	- [ ] Cloud
+	- [ ] AWS
+- [ ] Node.js and Express.js, Database and TS foundations by Thursday
+	- [ ] Node.js
+	- [ ] Express.js
+	- [ ] Database
+	- [ ] TS Foundation
+- [ ] API, GraphQL & Real Time, Async, Promise and Event loop and Testing by Friday
+	- [ ] API
+	- [ ] GraphQL & RealTime
+	- [ ] Async, promise Event Loop
+- [ ] JS Foundations and testing by Saturday
+	- [ ] JS Foundation
+	- [ ] Testing
+- [ ] Network & Browser, General Frontend, SDLC & Agile by Sunday
+	- [ ] Network & Browser
+	- [ ] General Frontend
+	- [ ] SDLC & Agile
+- [ ] Other Frameworks, CICD Build Tools, security and Authentication by Monday
+	- [ ] Other Frameworks
+	- [ ] CICI 
+	- [ ] Security and Auth
